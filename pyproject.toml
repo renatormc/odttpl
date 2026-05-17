@@ -1,0 +1,23 @@
+[project]
+name = "odttpl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "renatormc", email = "renatomartinsrmc@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "jinja2>=3.1.6",
+    "markdown2>=2.5.5",
+    "pillow>=12.2.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+]
