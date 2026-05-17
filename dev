@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_ROOT"
+
+case "${1:-help}" in
+    test)
+        shift
+        exec uv run pytest "$@"
+        ;;
+    sync)
+        exec uv sync
+        ;;
+    publish)
+        echo "Building package..."
+        uv build
+        echo "Publishing to PyPI..."
+        uv publish
+        ;;
+    help)
+        echo "Usage: $0 <command> [args...]"
+        echo
+        echo "Commands:"
+        echo "  test         Run tests (passes extra args to pytest)"
+        echo "  sync         Sync dependencies"
+        echo "  publish      Upload to PyPI"
+        echo "  run [args]   Run laudo CLI"
+        exit 1
+        ;;
+esac
