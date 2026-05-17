@@ -60,10 +60,10 @@ Most of the time odttpl will handle the internal composing of XML when you inser
 
 #### Examples document structures
 **Printing multiple records in a table**
-![alt tag](https://github.com/christopher-ramirez/odttpl/blob/development/docs/images/table_01.png)
+![alt tag](https://github.com/renatormc/odttpl/blob/main/src/odttpl/docs/images/table_01.png)
 
 **Conditional paragraphs**
-![alt tag](https://github.com/christopher-ramirez/odttpl/blob/development/docs/images/conditional_paragraph_01.png)
+![alt tag](https://github.com/renatormc/odttpl/blob/main/src/odttpl/docs/images/conditional_paragraph_01.png)
 
 The last example could had been simplified into a single paragraph in Writer like:
 ```jinja
