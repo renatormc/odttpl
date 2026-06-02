@@ -2,7 +2,7 @@ from ast import parse
 from copy import deepcopy
 from dataclasses import dataclass
 from re import sub
-from typing import Literal
+from typing import Literal, cast
 from xml.dom.minidom import Document, Node, Element, parseString
 
 
@@ -46,18 +46,28 @@ class StylesManager:
         self.extract_default_estyles()
 
     def extract_automatic_estyles(self) -> None:
-        nodes = self.content.documentElement.getElementsByTagName('office:automatic-styles')[0].childNodes
+        doc_elem = self.content.documentElement
+        assert doc_elem is not None
+        auto_styles = doc_elem.getElementsByTagName('office:automatic-styles')[0]
+        assert auto_styles is not None
+        nodes = auto_styles.childNodes
         for node in nodes:
             if node.nodeType != Node.ELEMENT_NODE:
                 continue
+            node = cast(Element, node)
             style_name = node.getAttribute("style:name")
             self.automatic_existing_styles[style_name] = node
 
     def extract_default_estyles(self) -> None:
-        nodes = self.styles.documentElement.getElementsByTagName('office:styles')[0].childNodes
+        doc_elem = self.styles.documentElement
+        assert doc_elem is not None
+        styles_elem = doc_elem.getElementsByTagName('office:styles')[0]
+        assert styles_elem is not None
+        nodes = styles_elem.childNodes
         for node in nodes:
             if node.nodeType != Node.ELEMENT_NODE:
                 continue
+            node = cast(Element, node)
             style_name = node.getAttribute("style:name")
             self.default_existing_styles[style_name] = node
 
@@ -91,8 +101,16 @@ class StylesManager:
 
 
 def get_copy_content(main_doc_styles: StylesManager, sub_doc_styles: StylesManager, prefix: str) -> None:
-    office_text = sub_doc_styles.content.documentElement.getElementsByTagName('office:text')[0]
-    elements = [node for node in office_text.childNodes if node.nodeType == Node.ELEMENT_NODE and node.tagName != "text:sequence-decls"]
+    doc_elem = sub_doc_styles.content.documentElement
+    assert doc_elem is not None
+    office_text = doc_elem.getElementsByTagName('office:text')[0]
+    assert office_text is not None
+    elements: list[Element] = []
+    for node in office_text.childNodes:
+        if node.nodeType == Node.ELEMENT_NODE:
+            node = cast(Element, node)
+            if node.tagName != "text:sequence-decls":
+                elements.append(node)
     for el in elements:
         sub_doc_styles.rename_styles(el, prefix, main_doc_styles)
     sub_doc_styles.content_for_addition = elements
@@ -107,14 +125,20 @@ class TableCopy:
     
 
 def find_and_copy_table(content: Document, table_name: str) -> TableCopy | None:
-    office_text = content.documentElement.getElementsByTagName('office:text')[0]
+    doc_elem = content.documentElement
+    assert doc_elem is not None
+    office_text = doc_elem.getElementsByTagName('office:text')[0]
+    assert office_text is not None
     tables = office_text.getElementsByTagName('table:table')
     for table in tables:
         if table.getAttribute("table:name") == table_name:
             styles: list[Element] = []
-            nodes = content.documentElement.getElementsByTagName('office:automatic-styles')[0].childNodes
+            auto_styles = doc_elem.getElementsByTagName('office:automatic-styles')[0]
+            assert auto_styles is not None
+            nodes = auto_styles.childNodes
             for node in nodes:
-                if node.nodeType == Node.ELEMENT_NODE and node.tagName == "style:style":
+                if node.nodeType == Node.ELEMENT_NODE and cast(Element, node).tagName == "style:style":
+                    node = cast(Element, node)
                     style_name = node.getAttribute("style:name")
                     if style_name == table_name or style_name.startswith(f"{table_name}."):
                         print(style_name)

@@ -5,7 +5,7 @@ import uuid
 from PIL import Image as PilImage
 from markupsafe import Markup
 if TYPE_CHECKING:
-    from odttpl.odttpl import Renderer
+    from .odttpl import Renderer
 
 
 def totag(tag: str, *args) -> str:

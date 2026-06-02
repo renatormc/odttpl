@@ -1,7 +1,7 @@
 # from __future__ import unicode_literals, print_function
 
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, cast
 import io
 import re
 import logging
@@ -10,13 +10,15 @@ import jinja2
 from os import path
 from mimetypes import guess_type, guess_extension
 from uuid import uuid4
-from xml.dom.minidom import parseString, Document, Node, Element
+from xml.dom.minidom import parseString, Document, Node, Element, Text
 from xml.parsers.expat import ExpatError, ErrorString
 from jinja2 import Environment, Undefined
 from markupsafe import Markup
 from urllib.parse import unquote
 
-from odttpl.inline_image import InlineImage
+from odttpl.odt_pos_process import pos_process_odt
+
+from .inline_image import InlineImage
 from .styles_manager import StylesManager, get_copy_content
 
 
@@ -127,12 +129,12 @@ class Renderer(object):
             self.environment.filters['pad'] = pad_string
             self.environment.filters['markdown'] = self.markdown_filter
             self.environment.filters['image'] = self.image_filter
-            # self.environment.filters['imagew'] = self.image_filter_w
-            # self.environment.filters['imageh'] = self.image_filter_h
             self.environment.filters['table'] = self.table_function
             self.environment.filters['count'] = self.count_filter
             self.environment.globals['SafeValue'] = Markup
             self.environment.globals['image'] = InlineImage(self)
+            self.environment.globals['seq'] = self.seq_function
+            self.environment.globals['cross'] = self.cross_reference_function
 
         self.media_path = kwargs.pop('media_path', '')
         self.media_callback: Callable = self.fs_loader
@@ -279,7 +281,8 @@ class Renderer(object):
             if not tag.hasChildNodes():
                 continue
 
-            content = tag.childNodes[0].data.strip()
+            first_child = tag.childNodes[0]
+            content = cast(Text, first_child).data.strip()
             if not self._is_jinja_tag(content):
                 continue
 
@@ -293,7 +296,8 @@ class Renderer(object):
         tags in differents parts of a document.
         """
         for tag in self._tags_in_document(document):
-            content = tag.childNodes[0].data.strip()
+            first_child = tag.childNodes[0]
+            content = cast(Text, first_child).data.strip()
             block_tag = self._is_block_tag(content)
 
             self._inc_node_tags_count(tag.parentNode, block_tag)
@@ -351,7 +355,7 @@ class Renderer(object):
 
         for tag in self._tags_in_document(document):
             placeholder: Element | None = tag
-            content = tag.childNodes[0].data.strip()
+            content = cast(Text, tag.childNodes[0]).data.strip()
             is_block = self._is_block_tag(content)
             scale_to = tag.getAttribute('text:description').strip().lower()
 
@@ -359,6 +363,7 @@ class Renderer(object):
                 # Take whole paragraph when handling a markdown field
                 scale_to = 'text:p'
 
+            new_node: Node
             if scale_to:
                 if FLOW_REFERENCES.get(scale_to, False):
                     placeholder = self._parent_of_type(
@@ -369,11 +374,16 @@ class Renderer(object):
 
             elif is_block:
                 # expand up the placeholder until a shared parent is found
-                while placeholder and not placeholder.parentNode.field_count > 1:
-                    placeholder = placeholder.parentNode
+                while placeholder is not None:
+                    parent = placeholder.parentNode
+                    if parent is None or getattr(parent, 'field_count', 0) > 1:
+                        break
+                    placeholder = cast(Element, parent)
 
                 if placeholder:
                     new_node = self.create_text_node(document, content)
+                else:
+                    continue
 
             else:
                 new_node = self.create_text_span_node(document, content)
@@ -381,30 +391,32 @@ class Renderer(object):
             if placeholder is None:
                 continue
 
-            if placeholder.parentNode is None:
+            parent_node = placeholder.parentNode
+            if parent_node is None:
                 continue
 
-            placeholder_parent: Element | None = placeholder.parentNode
-            if placeholder_parent is None:
-                continue
+            placeholder_parent = cast(Element, parent_node)
             if not scale_to.startswith('after::'):
                 placeholder_parent.insertBefore(new_node, placeholder)
             else:
-                if placeholder.isSameNode(placeholder_parent.lastChild):
+                last_child = placeholder_parent.lastChild
+                if last_child is not None and placeholder.isSameNode(last_child):
                     placeholder_parent.appendChild(new_node)
                 else:
-                    placeholder_parent.insertBefore(
-                        new_node, placeholder.nextSibling
-                    )
+                    nxt = placeholder.nextSibling
+                    if nxt is not None:
+                        placeholder_parent.insertBefore(new_node, cast(Element, nxt))
+                    else:
+                        placeholder_parent.appendChild(new_node)
 
             if scale_to.startswith(('after::', 'before::')):
                 # Don't remove whole field tag, only "text:text-input" container
                 placeholder = self._parent_of_type(tag, 'text:p')
-                if placeholder is not None:
-                    placeholder_parent = placeholder.parentNode
+                if placeholder is not None and placeholder.parentNode is not None:
+                    placeholder_parent = cast(Element, placeholder.parentNode)
 
             # Finally, remove the placeholder
-            if placeholder_parent is not None:
+            if placeholder_parent is not None and placeholder is not None:
                 placeholder_parent.removeChild(placeholder)
 
     def _unescape_entities(self, xml_text: str) -> str:
@@ -619,10 +631,12 @@ class Renderer(object):
         new_el.setAttribute('meta:name', "DocmakerID")
         text_node = xmldoc.createTextNode(id)
         new_el.appendChild(text_node)
-        xmldoc.documentElement.getElementsByTagName('office:meta')[0].appendChild(new_el)
+        doc_elem = xmldoc.documentElement
+        assert doc_elem is not None
+        doc_elem.getElementsByTagName('office:meta')[0].appendChild(new_el)
         return xmldoc
 
-    def render(self, template: str, docid: str | None = None, **kwargs) -> None:
+    def render(self, template: str, dest: Path | str, context: dict, pos_process=True, docid: str | None = None, ) -> None:
         """
             Render a template
 
@@ -650,7 +664,7 @@ class Renderer(object):
             self.meta = self.set_docmaker_id(self.meta, docid)
 
         # Render content.xml keeping just 'office:body' node.
-        rendered_content = self._render_xml(self.content, **kwargs)
+        rendered_content = self._render_xml(self.content, **context)
         if self.replace_table_names:
             self.replace_tables(rendered_content)
             self.replace_table_names.clear()
@@ -660,7 +674,7 @@ class Renderer(object):
         )
 
         # Render styles.xml
-        self.styles = self._render_xml(self.styles, **kwargs)
+        self.styles = self._render_xml(self.styles, **context)
 
         self.log.debug('Template rendering finished')
 
@@ -669,7 +683,11 @@ class Renderer(object):
         self.files['styles.xml'] = self.styles.toxml().encode('ascii', 'xmlcharrefreplace')
         self.files['META-INF/manifest.xml'] = self.manifest.toxml().encode('ascii', 'xmlcharrefreplace')
 
-    def save(self, path: str | Path) -> None:
+        self._save(dest)
+        if pos_process:
+            pos_process_odt(dest, dest)
+            
+    def _save(self, path: str | Path) -> None:
         """Saves the rendered document to a file."""
         path = Path(path)
         document = self._pack_document(self.files)
@@ -680,13 +698,12 @@ class Renderer(object):
         # Returns the first immediate parent of type `of_type`.
         # Returns None if nothing is found.
 
-        if hasattr(node, 'parentNode'):
-            if node.parentNode.nodeName.lower() == of_type:
-                return node.parentNode
-            else:
-                return self._parent_of_type(node.parentNode, of_type)
-        else:
+        parent = node.parentNode
+        if parent is None:
             return None
+        if parent.nodeName.lower() == of_type:
+            return cast(Element, parent)
+        return self._parent_of_type(cast(Element, parent), of_type)
 
     def create_node(self, xml_document: Document, node_type: str, parent: Element | None = None) -> Element:
         """Creates a node in `xml_document` of type `node_type` and specified,
@@ -704,7 +721,7 @@ class Renderer(object):
 
         return span
 
-    def create_text_node(self, xml_document: Document, text: str) -> Node:
+    def create_text_node(self, xml_document: Document, text: str) -> Text:
         """
         Creates a text node
         """
@@ -724,9 +741,10 @@ class Renderer(object):
             return None
 
         for style_node in auto_styles.childNodes:
-            if style_node.hasAttribute('style:name') and \
-               (style_node.getAttribute('style:name') == style_name):
-                return style_node
+            node = cast(Element, style_node)
+            if node.hasAttribute('style:name') and \
+               (node.getAttribute('style:name') == style_name):
+                return node
 
         return None
 
@@ -806,24 +824,28 @@ class Renderer(object):
                         def traverse_preformated(node: Element) -> None:
                             if node.hasChildNodes():
                                 for n in node.childNodes:
-                                    traverse_preformated(n)
+                                    traverse_preformated(cast(Element, n))
                             else:
                                 container = xml_object.createElement('text:span')
-                                for text in re.split('(\n)', node.nodeValue.lstrip('\n')):
+                                node_value = node.nodeValue or ''
+                                for text in re.split('(\n)', node_value.lstrip('\n')):
                                     if text == '\n':
                                         container.appendChild(xml_object.createElement('text:line-break'))
                                     else:
 
                                         container.appendChild(xml_object.createTextNode(text))
 
-                                node.parentNode.replaceChild(container, node)
+                                parent = node.parentNode
+                                if parent is not None:
+                                    parent.replaceChild(container, node)
                         traverse_preformated(html_node)
                         container = odt_node
                     else:
                         container = odt_node
 
                     for child_node in html_node.childNodes:
-                        container.appendChild(child_node.cloneNode(True))
+                        cloned = child_node.cloneNode(True)
+                        container.appendChild(cast(Element, cloned))
 
                 # Add style-attributes defined in transform_map
                 if 'style_attributes' in transform_map[tag]:
@@ -854,13 +876,15 @@ class Renderer(object):
                                 **transform_map[tag]['style']['properties'])
                             styles_cache[name] = style_node
 
-                html_node.parentNode.replaceChild(odt_node, html_node)
+                html_parent = html_node.parentNode
+                if html_parent is not None:
+                    html_parent.replaceChild(odt_node, html_node)
 
         def node_to_string(node: Element) -> str:
             return node.toxml()
 
-        ODTText = ''.join(node_as_str for node_as_str in map(node_to_string,
-                                                             xml_object.getElementsByTagName('html')[0].childNodes))
+        html_root = xml_object.getElementsByTagName('html')[0]
+        ODTText = ''.join(node_to_string(cast(Element, child)) for child in html_root.childNodes)
 
         return Markup(ODTText)
 
@@ -931,4 +955,8 @@ class Renderer(object):
     def count_filter(self, value: Any, num: int) -> Any:
         return value
     
-   
+    def seq_function(self, label: str, refname: str) -> str:
+        return f"@seq({label}, {refname})"
+    
+    def cross_reference_function(self, refname: str) -> str:
+        return f"@cross({refname})"

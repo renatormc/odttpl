@@ -17,12 +17,28 @@ Most Jinja2 features work inside ODT templates, including variable interpolation
     from odttpl import Renderer
 
     engine = Renderer()
-    result = engine.render(template, foo=foo, bar=bar)
+    engine.render(template, dest="output.odt", context={"foo": foo, "bar": bar})
 ```
 
 ODTTPL implements a class called `Renderer`. `Renderer` takes a single argument called `environment` which is a jinja **[Environment][3]**.
 
-To render a template create an instance of class `Renderer` and call the instance's method `render` passing a template file and template's variables as keyword arguments. `template` can be a filename or a file object. `render` will return the rendered document in binary format.
+To render a template create an instance of class `Renderer` and call the instance's method `render` passing a template file, a destination path, and a context dictionary with template variables:
+
+```python
+    render(template: str | Path,
+           dest: Path | str,
+           context: dict,
+           pos_process: bool = False,
+           docid: str | None = None) -> None
+```
+
+- `template` — Path to the ODT template file.
+- `dest` — Output path for the rendered ODT document.
+- `context` — Dictionary of template variables.
+- `pos_process` — If `True`, runs post-processing to replace sequence/cross-reference markers with real ODF XML (see *Post-Processing* below).
+- `docid` — Optional document ID to embed in the document metadata.
+
+The rendered document is written directly to `dest`. There is no return value.
 
 Before rendering a template, you can configure the internal templating engine using the `Renderer` instance's variable `environment`, which is an instance of jinja2 **[Environment][3]** class. For example, to declare a custom filter use:
 ```python
@@ -32,11 +48,36 @@ Before rendering a template, you can configure the internal templating engine us
 
     # Configure custom application filters
     engine.environment.filters['custom_filer'] = filter_function
-    result = engine.render(template, foo=foo, bar=bar)
-
-    output = open('rendered_document.odt', 'wb')
-    output.write(result)
+    engine.render(template, dest="output.odt", context={"foo": foo, "bar": bar})
 ```
+
+## Post-Processing
+
+ODTTPL can post-process a rendered document to replace plain-text markers with proper ODF XML for auto-numbered sequences and cross-references. This feature was designed for invoices, proposals, and other documents that need numbered figures, tables, or sections.
+
+Enable it by passing `pos_process=True` to `render()`:
+
+```python
+engine.render(template, dest="output.odt", context={...}, pos_process=True)
+```
+
+### Supported Markers
+
+Type these markers directly into LibreOffice Writer (no special fields required):
+
+| Marker | Example | Description |
+|---|---|---|
+| `@seq(Type, RefName)` | `@seq(Foto, ref1)` | Auto-incrementing sequence number |
+| `@cross(RefName)` | `@cross(ref1)` | Cross-reference to a sequence by ref name |
+| `${RefName}` | `${ref1}` | Shorthand for `@cross(RefName)` |
+
+### How It Works
+
+1. `@seq(Foto, ref1)` is replaced with a `<text:sequence>` element that auto-increments per type (`Foto`, `Figura`, etc.) and registers `ref1` as its reference name.
+2. `@cross(ref1)` or `${ref1}` is replaced with a `<text:sequence-ref>` element showing the number of the referenced sequence.
+3. Markers that span multiple styled spans (e.g., a bold word inside a marker) are normalized before replacement.
+
+Because the markers are plain text, they survive template rendering untouched — the post-processor runs *after* Jinja2 has finished, ensuring sequence numbering is always final and accurate.
 
 ## Composing Templates
 
@@ -130,7 +171,7 @@ Since the default media loader is very limited. Users can provide theirs own med
 
 Example declaring a media loader:
 ```python
-    from odttpl import Renderer
+    from . import Renderer
 
     engine = Renderer()
 

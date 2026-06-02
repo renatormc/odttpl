@@ -1,6 +1,6 @@
 [project]
 name = "odttpl"
-version = "0.1.0"
+version = "0.1.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "jinja2>=3.1.6",
+    "lxml>=6.1.1",
     "markdown2>=2.5.5",
     "pillow>=12.2.0",
 ]
@@ -19,5 +20,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "lxml-stubs>=0.5.1",
     "mypy>=2.1.0",
 ]
