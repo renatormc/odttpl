@@ -15,9 +15,6 @@ from xml.parsers.expat import ExpatError, ErrorString
 from jinja2 import Environment, Undefined
 from markupsafe import Markup
 from urllib.parse import unquote
-
-from odttpl.odt_pos_process import pos_process_odt
-
 from .inline_image import InlineImage
 from .styles_manager import StylesManager, get_copy_content
 
@@ -636,7 +633,7 @@ class Renderer(object):
         doc_elem.getElementsByTagName('office:meta')[0].appendChild(new_el)
         return xmldoc
 
-    def render(self, template: str, dest: Path | str, context: dict, pos_process=True, docid: str | None = None, ) -> None:
+    def render(self, template: str, dest: Path | str, context: dict, docid: str | None = None, ) -> None:
         """
             Render a template
 
@@ -684,9 +681,7 @@ class Renderer(object):
         self.files['META-INF/manifest.xml'] = self.manifest.toxml().encode('ascii', 'xmlcharrefreplace')
 
         self._save(dest)
-        if pos_process:
-            pos_process_odt(dest, dest)
-            
+                    
     def _save(self, path: str | Path) -> None:
         """Saves the rendered document to a file."""
         path = Path(path)

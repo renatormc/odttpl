@@ -28,14 +28,12 @@ To render a template create an instance of class `Renderer` and call the instanc
     render(template: str | Path,
            dest: Path | str,
            context: dict,
-           pos_process: bool = False,
            docid: str | None = None) -> None
 ```
 
 - `template` — Path to the ODT template file.
 - `dest` — Output path for the rendered ODT document.
 - `context` — Dictionary of template variables.
-- `pos_process` — If `True`, runs post-processing to replace sequence/cross-reference markers with real ODF XML (see *Post-Processing* below).
 - `docid` — Optional document ID to embed in the document metadata.
 
 The rendered document is written directly to `dest`. There is no return value.
@@ -50,34 +48,6 @@ Before rendering a template, you can configure the internal templating engine us
     engine.environment.filters['custom_filer'] = filter_function
     engine.render(template, dest="output.odt", context={"foo": foo, "bar": bar})
 ```
-
-## Post-Processing
-
-ODTTPL can post-process a rendered document to replace plain-text markers with proper ODF XML for auto-numbered sequences and cross-references. This feature was designed for invoices, proposals, and other documents that need numbered figures, tables, or sections.
-
-Enable it by passing `pos_process=True` to `render()`:
-
-```python
-engine.render(template, dest="output.odt", context={...}, pos_process=True)
-```
-
-### Supported Markers
-
-Type these markers directly into LibreOffice Writer (no special fields required):
-
-| Marker | Example | Description |
-|---|---|---|
-| `@seq(Type, RefName)` | `@seq(Foto, ref1)` | Auto-incrementing sequence number |
-| `@cross(RefName)` | `@cross(ref1)` | Cross-reference to a sequence by ref name |
-| `${RefName}` | `${ref1}` | Shorthand for `@cross(RefName)` |
-
-### How It Works
-
-1. `@seq(Foto, ref1)` is replaced with a `<text:sequence>` element that auto-increments per type (`Foto`, `Figura`, etc.) and registers `ref1` as its reference name.
-2. `@cross(ref1)` or `${ref1}` is replaced with a `<text:sequence-ref>` element showing the number of the referenced sequence.
-3. Markers that span multiple styled spans (e.g., a bold word inside a marker) are normalized before replacement.
-
-Because the markers are plain text, they survive template rendering untouched — the post-processor runs *after* Jinja2 has finished, ensuring sequence numbering is always final and accurate.
 
 ## Composing Templates
 
